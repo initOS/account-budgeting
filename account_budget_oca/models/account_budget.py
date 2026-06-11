@@ -32,19 +32,20 @@ class AccountBudgetPost(models.Model):
         comodel_name="res.company", required=True, default=lambda self: self.env.company
     )
 
-    def _check_account_ids(self, vals):
+    def _check_account_ids(self, vals=None):
         # Raise an error to prevent the account.budget.post to have not
         # specified account_ids.
         # This check is done on create because require=True doesn't work on
         # Many2many fields.
-        if "account_ids" in vals:
-            account_ids = self.new({"account_ids": vals["account_ids"]}).account_ids
-        else:
-            account_ids = self.account_ids
-        if not account_ids:
-            raise ValidationError(
-                self.env._("The budget must have at least one account.")
-            )
+        for rec in self:
+            if vals and "account_ids" in vals:
+                account_ids = rec.new({"account_ids": vals["account_ids"]}).account_ids
+            else:
+                account_ids = rec.account_ids
+            if not account_ids:
+                raise ValidationError(
+                    self.env._("The budget must have at least one account.")
+                )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -53,8 +54,9 @@ class AccountBudgetPost(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
-        self._check_account_ids(vals)
-        return super().write(vals)
+        res = super().write(vals)
+        self._check_account_ids()
+        return res
 
 
 class CrossoveredBudget(models.Model):
@@ -86,6 +88,17 @@ class CrossoveredBudget(models.Model):
         copy=False,
         tracking=True,
     )
+    budget_type = fields.Selection(
+        string="Budget Type",
+        selection=[
+            ("revenue", "Revenue"),
+            ("expense", "Expense"),
+            ("both", "Both"),
+        ],
+        required=True,
+        default="expense",
+        copy=False,
+    )
     crossovered_budget_line_ids = fields.One2many(
         comodel_name="crossovered.budget.lines",
         inverse_name="crossovered_budget_id",
@@ -111,9 +124,14 @@ class CrossoveredBudget(models.Model):
     def action_budget_done(self):
         self.write({"state": "done"})
 
+    def _get_view(self, view_id=None, view_type="form", **options):
+        arch, view = super()._get_view(view_id, view_type, **options)
+        return self.env["analytic.plan.fields.mixin"]._patch_view(arch, view, view_type)
+
 
 class CrossoveredBudgetLines(models.Model):
     _name = "crossovered.budget.lines"
+    _inherit = ["analytic.plan.fields.mixin"]
     _description = "Budget Line"
 
     crossovered_budget_id = fields.Many2one(
@@ -123,7 +141,6 @@ class CrossoveredBudgetLines(models.Model):
         index=True,
         required=True,
     )
-    analytic_account_id = fields.Many2one(comodel_name="account.analytic.account")
     general_budget_id = fields.Many2one(
         comodel_name="account.budget.post", string="Budgetary Position", required=True
     )
@@ -138,27 +155,42 @@ class CrossoveredBudgetLines(models.Model):
         related="crossovered_budget_id.company_id", store=True, readonly=True
     )
 
-    @api.depends(
-        "general_budget_id.account_ids", "date_from", "date_to", "analytic_account_id"
-    )
+    @api.depends("general_budget_id.account_ids", "date_from", "date_to", "account_id")
     def _compute_practical_amount(self):
+        project_plan, other_plans = self.env["account.analytic.plan"]._get_all_plans()
+        plan_fnames = [
+            fname
+            for plan in project_plan | other_plans
+            if (fname := plan._column_name()) in self
+        ]
+
         for line in self:
             result = 0.0
             acc_ids = line.general_budget_id.account_ids.ids
             date_to = line.date_to
             date_from = line.date_from
             if date_from and date_to and acc_ids:
-                if line.analytic_account_id:
+                sign = -1 if line.crossovered_budget_id.budget_type == "expense" else 1
+
+                domain = (
+                    [("account_id", "=", line.account_id.id)] if line.account_id else []
+                )
+
+                for fname in plan_fnames:
+                    if acc := line[fname]:
+                        domain.append((fname, "=", acc.id))
+
+                if line.account_id:
                     data = self.env["account.analytic.line"]._read_group(
                         [
-                            ("account_id", "=", line.analytic_account_id.id),
+                            *domain,
                             ("date", ">=", date_from),
                             ("date", "<=", date_to),
                             ("general_account_id", "in", acc_ids),
                         ],
                         aggregates=["amount:sum"],
                     )
-                    result = data[0][0] if data else 0.0
+                    result = sign * data[0][0] if data else 0.0
                 else:
                     data = self.env["account.move.line"]._read_group(
                         [
@@ -169,7 +201,7 @@ class CrossoveredBudgetLines(models.Model):
                         ],
                         aggregates=["balance:sum"],
                     )
-                    result = -data[0][0] if data else 0.0
+                    result = -sign * data[0][0] if data else 0.0
             line.practical_amount = result
 
     @api.depends("paid_date", "date_from", "date_to", "planned_amount")

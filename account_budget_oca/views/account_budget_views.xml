@@ -153,6 +153,7 @@
                                 nolabel="1"
                             />
                                 </div>
+                            <field name="budget_type" />
                             <field
                                 name="company_id"
                                 groups="base.group_multi_company"
@@ -172,7 +173,7 @@
                                 <list>
                                     <field name="general_budget_id" />
                                     <field
-                                        name="analytic_account_id"
+                                        name="account_id"
                                         groups="analytic.group_analytic_accounting"
                                     />
                                     <field name="date_from" />
@@ -198,7 +199,7 @@
                                             <field name="general_budget_id" />
                                             <field name="planned_amount" />
                                             <field
-                                                name="analytic_account_id"
+                                                name="account_id"
                                                 groups="analytic.group_analytic_accounting"
                                             />
                                         </group>
@@ -379,7 +380,7 @@
         <field name="model">crossovered.budget.lines</field>
         <field name="arch" type="xml">
             <search>
-                <field name="analytic_account_id" />
+                <field name="account_id" />
             </search>
         </field>
     </record>
@@ -388,10 +389,10 @@
         <field name="model">crossovered.budget.lines</field>
         <field name="arch" type="xml">
             <list>
-                <field name="crossovered_budget_id" invisible="1" />
+                <field name="crossovered_budget_id" column_invisible="1" />
                 <field name="general_budget_id" />
                 <field
-                    name="analytic_account_id"
+                    name="account_id"
                     groups="analytic.group_analytic_accounting"
                 />
                 <field name="date_from" />
@@ -412,7 +413,7 @@
                 <sheet>
                     <group col="4">
                         <field name="crossovered_budget_id" />
-                        <field name="analytic_account_id" />
+                        <field name="account_id" />
                         <field name="general_budget_id" />
                         <field name="date_from" />
                         <field name="date_to" />

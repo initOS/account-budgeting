@@ -8,6 +8,10 @@ class AccountAnalyticAccount(models.Model):
 
     crossovered_budget_line_ids = fields.One2many(
         comodel_name="crossovered.budget.lines",
-        inverse_name="analytic_account_id",
+        inverse_name="account_id",
         string="Budget Lines",
     )
+
+    def _get_view(self, view_id=None, view_type="form", **options):
+        arch, view = super()._get_view(view_id, view_type, **options)
+        return self.env["analytic.plan.fields.mixin"]._patch_view(arch, view, view_type)
